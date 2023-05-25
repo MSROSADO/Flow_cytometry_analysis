@@ -1,0 +1,443 @@
+# Flow cytometry data analysis
+
+library(ggplot2)
+library(tidyverse)
+library(lmerTest)
+library(rstatix)
+library(gridExtra)
+library(readxl)
+
+# Load dataset
+setwd("the desired directory")
+data <- read_excel("age_dataset_FlowCyt.xlsx")
+i <- c(5:14)
+data[ , i] <- apply(data[ , i], 2,            # Specify own function within apply
+                    function(x) as.numeric(as.character(x)))
+
+# Convert batch effects to a factor variable
+data$batch=as.factor(data$batch)
+
+# sex as a numeric variable (mean centered)
+data$sex2=data$sex
+data$sex2[data$sex2=='MALE']<- '0.5'
+data$sex2[data$sex2=='FEMALE']<- '-0.5'
+data$sex2=as.numeric(data$sex2)
+
+# Convert sex to a factor variable
+data$sex=as.factor(data$sex)
+
+# mean center age
+data$age2= data$age - mean(data$age)
+
+# Calculate B cell to T cell ratio
+data$bcell_tcell_ratio=data$bcells/data$cd3tcells
+
+# Calculate CD4+ cell to CD8+ T cell ratio
+data$cd4tcell_cd8tcell_ratio=data$cd4tcells/data$cd8tcells
+
+# Reoder column to have batch effects in the last column of dataset
+data=data[,c(1:14, 19:20, 16:18, 15)]
+
+#Dataset is now ready to start working
+
+# Create Figure 1A histograms
+# Complete datsaset histogram
+ggplot(data, aes(x=age)) + geom_histogram(color="black", fill="black", alpha=0.3, binwidth =1.7 ) +
+  xlab("Age (Years)") + ylab("Count") + theme(panel.grid.major = element_blank(), 
+                                      panel.grid.minor = element_blank(), legend.position="none", 
+                                      panel.background = element_blank(), axis.text=element_text(size=14), 
+                                      axis.title.x = element_text(size = 18),
+                                      axis.ticks.x = element_blank(), axis.title.y = element_text(size = 18), 
+                                      axis.line = element_line(colour = "black"))
+
+# By Sex Histogram
+colors=c('dodgerblue4', 'darkorange1')
+ggplot(data, aes(x=age, color=sex, fill=sex)) + xlab("Age (Years)") + ylab("Count") + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), legend.position="none",
+        panel.background = element_blank(), axis.text=element_text(size=14), 
+        axis.title.x = element_text(size = 18),
+        axis.ticks.x = element_blank(), axis.title.y = element_text(size = 18), 
+        axis.line = element_line(colour = "black")) + facet_wrap(~sex) + 
+  geom_histogram(data=subset(data,sex=="MALE"), fill="dodgerblue4", color="dodgerblue4", alpha=.4, binwidth = 2.5) + 
+  geom_histogram(data=subset(data,sex=='FEMALE'), fill="darkorange1", color="darkorange1", alpha=.4, binwidth = 2.5)
+
+# mean and median age in dataset
+mean(data$age)
+median(data$age)
+
+# number of males and females in the dataset
+table(data$sex)
+
+# Run principal compinent analisys on immune cell typyes 
+pca_data<-prcomp(data[,5:16], scale = TRUE)
+summary(pca_data)
+
+# merge PCs with data and rename PC columns
+data<-cbind(data, pca_data$x[,1:5])
+colnames(data)[21:25]=c('PC1', 'PC2', 'PC3', 'PC4', 'PC5')
+
+# Perform additive effects model and interaction (age*sex) with PC projections
+PC1_lmer=lmer(PC1 ~ sex + age + batch + (1|sample), data=data)
+summary(PC1_lmer) # significant additive effect of age - Model 1
+
+PC1_lmer=lmer(PC1 ~ sex * age + batch + (1|sample), data=data)
+summary(PC1_lmer) # not significant - Model 2
+
+# Create figure 1B plot
+# Subtract out partial residuals of batch effects from model to create residuals plot 
+data$PC1_wout_batch = data$PC1 - (model.matrix(PC1_lmer)[,c("batch2","batch3")]%*%summary(PC1_lmer)$
+                                    coef[c("batch2","batch3"),1])
+
+#PC1_plot
+ggplot(data, aes(x = age, y = PC1_wout_batch)) + xlab("Age (Years)") + ylab("PC1 (32.4%)") +
+  geom_smooth(method="lm", color="black") + geom_point(color="dodgerblue4")  + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), axis.text=element_text(size=14), 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 18), 
+        axis.line = element_line(colour = "black"))
+
+# Evaluate the correlation of every cell type with PC1 (Pairwise comparison)
+bcell_cor=cor.test(data$bcells, data$PC1)
+cd3tcell_cor=cor.test(data$cd3tcells, data$PC1)
+bcell_tcell_cor=cor.test(data$bcell_tcell_ratio, data$PC1)
+cd4tcells_cor=cor.test(data$cd4tcells, data$PC1)
+cd8tcells_cor=cor.test(data$cd8tcells, data$PC1)
+cd4tcell_cd8tcell_cor=cor.test(data$cd4tcell_cd8tcell_ratio, data$PC1)
+cd4tregs_cor=cor.test(data$cd4tregulatory, data$PC1)
+cd8tregs_cor=cor.test(data$cd8tregulatory, data$PC1)
+nkcells_cor=cor.test(data$nkcells, data$PC1)
+class_monocytes_cor=cor.test(data$class_monocytes, data$PC1)
+nonclass_monocytes_cor=cor.test(data$nonclass_monocytes, data$PC1)
+inter_monocytes_cor=cor.test(data$inter_monocytes, data$PC1)
+
+#Create Supplementary Table that contains every cell type and its correlation with PC1
+pearson_correlation=c(bcell_cor$estimate, cd3tcell_cor$estimate, bcell_tcell_cor$estimate, 
+                      cd4tcells_cor$estimate, cd8tcells_cor$estimate, cd4tcell_cd8tcell_cor$estimate,
+                      cd4tregs_cor$estimate, cd8tregs_cor$estimate, nkcells_cor$estimate,
+                      class_monocytes_cor$estimate, nonclass_monocytes_cor$estimate, 
+                      inter_monocytes_cor$estimate)
+pearson_correlation=round(pearson_correlation, digits = 2)
+
+correlation_p_value=c(bcell_cor$p.value, cd3tcell_cor$p.value, bcell_tcell_cor$p.value, 
+                      cd4tcells_cor$p.value, cd8tcells_cor$p.value, cd4tcell_cd8tcell_cor$p.value,
+                      cd4tregs_cor$p.value, cd8tregs_cor$p.value, nkcells_cor$p.value,
+                      class_monocytes_cor$p.value, nonclass_monocytes_cor$p.value, 
+                      inter_monocytes_cor$p.value)
+correlation_p_value=p_round(correlation_p_value, digits = 2)
+
+cells= c('CD20+ B Cells', 'CD3+ T Cells', 'B Cell/T Cell Ratio', 'CD4+ T Cells', 'CD8+ T Cells', 
+         'CD4/CD8 T Cell Ratio', 'CD4+ T Regulatory Cells', 'CD8+ T Regulatory Cells', 
+         'NK Cells', 'Classical Monocytes', 'Non-Classical Monocytes', 'Intermediate Monocytes')
+
+correlation_table=data.frame(cells, pearson_correlation, correlation_p_value)  
+correlation_table <- correlation_table[order(pearson_correlation),]
+View(correlation_table)
+
+# Create Figure 1C 
+#PC1_correlations
+ggplot(data=correlation_table, aes(x=pearson_correlation, y=reorder(cells,pearson_correlation))) + 
+  geom_bar(stat="identity", fill='darkgoldenrod2') + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+        legend.position="none", panel.background = element_blank(), axis.text=element_text(size=14),
+        axis.title.x = element_text(size = 18), axis.title.y = element_blank(),
+        axis.line = element_line(colour = "black")) + xlab("Correlation with PC1")
+
+# Run additive linear mixed-effects models on cell ratios and cell types (Model 3)
+
+# CD20+ B cell to CD3+ T cell ratio
+bcell_tcell_ratio_lmer=lmer(bcell_tcell_ratio ~ age + sex + batch + (1|sample), data=data)
+summary(bcell_tcell_ratio_lmer)
+
+# CD20+ B cells
+bcells_lmer=lmer(bcells ~ age + sex + batch + (1|sample), data=data)
+summary(bcells_lmer)
+
+# CD3+ T cells
+cd3tcells_lmer=lmer(cd3tcells ~ age + sex + batch + (1|sample), data=data)
+summary(cd3tcells_lmer)
+
+# CD4+ T cells
+cd4tcells_lmer=lmer(cd4tcells ~ age + sex + batch + (1|sample), data=data)
+summary(cd4tcells_lmer)
+
+# CD8+ T cells
+cd8tcells_lmer=lmer(cd8tcells ~ age + sex + batch + (1|sample), data=data)
+summary(cd8tcells_lmer)
+
+# CD4+ to CD8+ T cell ratio
+cd4_cd8_ratio_lmer=lmer(cd4tcell_cd8tcell_ratio ~ age + sex + batch + (1|sample), data=data)
+summary(cd4_cd8_ratio_lmer)
+
+# CD4+ T regulatory cells
+cd4tregulatory_lmer=lmer(cd4tregulatory ~ age + sex + batch + (1|sample), data=data)
+summary(cd4tregulatory_lmer)
+
+# CD8+ T regulatory cells
+cd8tregulatory_lmer=lmer(cd8tregulatory ~ age + sex + batch + (1|sample), data=data)
+summary(cd8tregulatory_lmer)
+
+# Natural Killer cells
+nkcells_lmer=lmer(nkcells ~ age + sex + batch + (1|sample), data=data)
+summary(nkcells_lmer)
+
+# Classical Monocytes
+class_monocytes_lmer=lmer(class_monocytes ~ age + sex + batch + (1|sample), data=data)
+summary(class_monocytes_lmer)
+
+# Non-Classical Monocytes
+non_class_monocytes_lmer=lmer(nonclass_monocytes ~ age + sex + batch + (1|sample), data=data)
+summary(non_class_monocytes_lmer)
+
+# Intermediate Monocytes
+inter_monocytes_lmer=lmer(inter_monocytes ~ age + sex + batch + (1|sample), data=data)
+summary(inter_monocytes_lmer)
+
+# multiple hypothesis testing on all cell types to test if the addiive effect of age
+# is significant (.1<)
+correction=as.data.frame(c(summary(cd3tcells_lmer)$coefficients[,5][2], summary(cd4tcells_lmer)$coefficients[,5][2],
+                           summary(cd8tcells_lmer)$coefficients[,5][2], summary(bcells_lmer)$coefficients[,5][2],
+                           summary(nkcells_lmer)$coefficients[,5][2], summary(bcell_tcell_ratio_lmer)$coefficients[,5][2],
+                           summary(cd4_cd8_ratio_lmer)$coefficients[,5][2], summary(cd4tregulatory_lmer)$coefficients[,5][2],
+                           summary(cd8tregulatory_lmer)$coefficients[,5][2], summary(class_monocytes_lmer)$coefficients[,5][2],
+                           summary(non_class_monocytes_lmer)$coefficients[,5][2], summary(inter_monocytes_lmer)$coefficients[,5][2],
+                           summary(PC1_lmer)$coefficients[,5][3]))
+adjusted_p_values_age=as.data.frame(p.adjust(correction$`c(summary(cd3tcells_lmer)$coefficients[, 5][2], summary(cd4tcells_lmer)$coefficients[, 5][2], summary(cd8tcells_lmer)$coefficients[, 5][2], summary(bcells_lmer)$coefficients[, 5][2], summary(nkcells_lmer)$coefficients[, 5][2], summary(bcell_tcell_ratio_lmer)$coefficients[, 5][2], summary(cd4_cd8_ratio_lmer)$coefficients[, 5][2], summary(cd4tregulatory_lmer)$coefficients[, 5][2], summary(cd8tregulatory_lmer)$coefficients[, 5][2], summary(class_monocytes_lmer)$coefficients[, 5][2], summary(non_class_monocytes_lmer)$coefficients[,      5][2], summary(inter_monocytes_lmer)$coefficients[, 5][2], summary(PC1_lmer)$coefficients[, 5][3])`, method = 'fdr'))
+colnames(adjusted_p_values_age)='fdr'
+adjusted_p_values_age$cell_type=c('cd3tcells', 'cd4tcells', 'cd8tcells', 'bcells', 'nkcells', 'btratio', 'cd4cd8ratio',
+                                  'cd4tregs', 'cd8tregs', 'classmono', 'nonclassmono', 'intermono', 'PC1')
+
+# multiple hypothesis testing on all cell types to test if the addiive effect of age
+# is significant (.1<)
+correction=as.data.frame(c(summary(cd3tcells_lmer)$coefficients[,5][3], summary(cd4tcells_lmer)$coefficients[,5][3],
+                           summary(cd8tcells_lmer)$coefficients[,5][3], summary(bcells_lmer)$coefficients[,5][3],
+                           summary(nkcells_lmer)$coefficients[,5][3], summary(bcell_tcell_ratio_lmer)$coefficients[,5][3],
+                           summary(cd4_cd8_ratio_lmer)$coefficients[,5][3], summary(cd4tregulatory_lmer)$coefficients[,5][3],
+                           summary(cd8tregulatory_lmer)$coefficients[,5][3], summary(class_monocytes_lmer)$coefficients[,5][3],
+                           summary(non_class_monocytes_lmer)$coefficients[,5][3], summary(inter_monocytes_lmer)$coefficients[,5][3],
+                           summary(PC1_lmer)$coefficients[,5][2]))
+adjusted_p_values_sex=as.data.frame(p.adjust(correction$`c(summary(cd3tcells_lmer)$coefficients[, 5][3], summary(cd4tcells_lmer)$coefficients[, 5][3], summary(cd8tcells_lmer)$coefficients[, 5][3], summary(bcells_lmer)$coefficients[, 5][3], summary(nkcells_lmer)$coefficients[, 5][3], summary(bcell_tcell_ratio_lmer)$coefficients[, 5][3], summary(cd4_cd8_ratio_lmer)$coefficients[, 5][3], summary(cd4tregulatory_lmer)$coefficients[, 5][3], summary(cd8tregulatory_lmer)$coefficients[, 5][3], summary(class_monocytes_lmer)$coefficients[, 5][3], summary(non_class_monocytes_lmer)$coefficients[,      5][3], summary(inter_monocytes_lmer)$coefficients[, 5][3], summary(PC1_lmer)$coefficients[, 5][2])`, method = 'fdr'))
+colnames(adjusted_p_values_sex)='fdr'
+adjusted_p_values_sex$cell_type=c('cd3tcells', 'cd4tcells', 'cd8tcells', 'bcells', 'nkcells', 'btratio', 'cd4cd8ratio',
+                                  'cd4tregs', 'cd8tregs', 'classmono', 'nonclassmono', 'intermono', 'PC1')
+
+# Susbstract the effect of batch to work with resudials for plot visualizations
+
+# CD20+ B cell to CD3+ T cell residuals
+data$bcell_tcell_ratio = data$bcell_tcell_ratio - 
+  (model.matrix(bcell_tcell_ratio_lmer)[,c("batch2","batch3","batch4")]
+   %*%summary(bcell_tcell_ratio_lmer)$coef[c("batch2","batch3","batch4"),1]) 
+
+# CD20+ B cells rediduals
+data$bcells = data$bcells - (model.matrix(bcells_lmer)[,c("batch2","batch3", "batch4")]
+                             %*%summary(bcells_lmer)$coef[c("batch2","batch3","batch4"),1]) 
+
+# CD3+ T cells rediduals
+data$cd3tcells = data$cd3tcells - (model.matrix(cd3tcells_lmer)[,c("batch2","batch3","batch4")]
+                                   %*%summary(cd3tcells_lmer)$coef[c("batch2","batch3","batch4"),1]) 
+
+# CD8+ T cells rediduals
+data$cd8tcellsage = data$cd8tcells - (model.matrix(cd8tcells_lmer)[,c("batch2","batch3","batch4")]
+                                   %*%summary(cd8tcells_lmer)$coef[c("batch2","batch3","batch4"),1]) 
+
+# CD4+ T regulatory cells 
+data$cd4tregulatory = data$cd4tregulatory - (model.matrix(cd4tregulatory_lmer)[,c("batch2","batch3","batch4")]
+                                             %*%summary(cd4tregulatory_lmer)$coef[c("batch2","batch3","batch4"),1]) 
+
+# CD8+ T regulatory cells residuals
+data$cd8tregulatory = data$cd8tregulatory - (model.matrix(cd8tregulatory_lmer)[,c("batch2","batch3","batch4")]
+                                             %*%summary(cd8tregulatory_lmer)$coef[c("batch2","batch3","batch4"),1]) 
+
+# Natural Killer cells residuals
+data$nkcells = data$nkcells - (model.matrix(nkcells_lmer)[,c("batch2","batch3","batch4")]
+                               %*%summary(nkcells_lmer)$coef[c("batch2","batch3","batch4"),1]) 
+
+# Classical Monocytes resdiauls 
+data$class_monocytes = data$class_monocytes - (model.matrix(class_monocytes_lmer)[,c("batch2","batch3","batch4")]
+                                               %*%summary(class_monocytes_lmer)$coef[c("batch2","batch3","batch4"),1]) 
+
+# Intermediate Monocytes resdiauls 
+data$inter_monocytes = data$inter_monocytes - (model.matrix(inter_monocytes_lmer)[,c("batch2","batch3","batch4")]
+                                               %*%summary(inter_monocytes_lmer)$coef[c("batch2","batch3","batch4"),1]) 
+
+
+# Generate figure 2 plots
+
+# Figure 2A
+#bcell_tcell_ratio_plot
+ggplot(data, aes(x = age, y = bcell_tcell_ratio)) + xlab("Age (Years)") + 
+  ylab("CD20+/CD3+ Ratio") + geom_smooth(method="lm", color="black") + 
+  geom_point(color="dodgerblue4", alpha=0.8) + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.text=element_text(size=14), 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 18),
+        axis.line = element_line(colour = "black"))
+
+# Figure 2B
+ggplot(data, aes(x = age, y = bcells)) + xlab("Age (Years)") + 
+  ylab("% CD20+ B Cells") + geom_smooth(method="lm", color="black") + 
+  geom_point(color="dodgerblue4", alpha=0.8) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.text=element_text(size=14), 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 18),
+        axis.line = element_line(colour = "black"))  
+
+# Figure 2C
+ggplot(data, aes(x = age, y = cd8tcellsage)) + xlab("Age (Years)") + 
+  ylab("% CD8+ T Cells") + geom_smooth(method="lm", color="black") + 
+  geom_point(color="dodgerblue4", alpha=0.8) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.text=element_text(size=14), 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 18),
+        axis.line = element_line(colour = "black"))  
+
+# Figure 2D
+ggplot(data, aes(x = age, y = cd4tcell_cd8tcell_ratio)) + xlab("Age (Years)") + 
+  ylab("CD4+/CD8+ Ratio") + geom_smooth(method="lm", color="black") + 
+  geom_point(color="dodgerblue4", alpha=0.8) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.text=element_text(size=14), 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 18),
+        axis.line = element_line(colour = "black"))  
+
+# Figure 2E
+ggplot(data, aes(x = age, y = cd4tregulatory)) + xlab("Age (Years)") + 
+  ylab("% CD4+ T Regulatory Cells") + geom_smooth(method="lm", color="black") + 
+  geom_point(color="dodgerblue4", alpha=0.8) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.text=element_text(size=14), 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 18),
+        axis.line = element_line(colour = "black"))  
+
+# Figure 2F
+ggplot(data, aes(x = age, y = cd8tregulatory)) + xlab("Age (Years)") + 
+  ylab("% CD8+ T Regulatory Cells") + geom_smooth(method="lm", color="black") + 
+  geom_point(color="dodgerblue4", alpha=0.8) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.text=element_text(size=14), 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 18),
+        axis.line = element_line(colour = "black"))  
+
+# Supplementary figure 3 plot
+# Figure 2B
+ggplot(data, aes(x = age, y = cd3tcells)) + xlab("Age (Years)") + 
+  ylab("% CD3+ T Cells") + geom_smooth(method="lm", color="black") + 
+  geom_point(color="dodgerblue4", alpha=0.8) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.text=element_text(size=14), 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 18),
+        axis.line = element_line(colour = "black")) 
+
+# Generate figure 3 plots
+
+# Figure 3A
+ggplot(data, aes(x = age, y = class_monocytes)) + xlab("Age (Years)") + 
+  ylab("% CD14+/CD16-/HLADR+ Classical Monocytes") + geom_smooth(method="lm", color="black") + 
+  geom_point(color="dodgerblue4", alpha=0.8) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.text=element_text(size=14), 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 15),
+        axis.line = element_line(colour = "black")) 
+
+# Figure 3B
+ggplot(data, aes(x = age, y = inter_monocytes)) + xlab("Age (Years)") + 
+  ylab("% CD14+/CD16+/HLADR+ Intermediate Monocytes") + geom_smooth(method="lm", color="black") + 
+  geom_point(color="dodgerblue4", alpha=0.8) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.text=element_text(size=14), 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 14),
+        axis.line = element_line(colour = "black")) 
+
+# Figure 3C
+ggplot(data, aes(x = age, y = nkcells)) + xlab("Age (Years)") + 
+  ylab("% Natural Killer Cells") + geom_smooth(method="lm", color="black") + 
+  geom_point(color="dodgerblue4", alpha=0.8) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.text=element_text(size=14), 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 18),
+        axis.line = element_line(colour = "black")) 
+
+# Eliminate batch and age effect from cell types where there was a trend towards sex differences to plot residuals
+
+# CD8+ T cells
+summary(cd8tcells_lmer)$coefficients
+data$cd8tcellssex = data$cd8tcells - (model.matrix(cd4tcells_lmer)[,c("batch2","batch3","batch4")]
+                                      %*%summary(cd4tcells_lmer)$coef[c("batch2","batch3","batch4"),1]) - (data$age*0.60008) 
+
+# CD4+ to CD8+ T cell ratio
+summary(cd4_cd8_ratio_lmer)$coefficients
+data$cd4tcell_cd8tcell_ratiosex = data$cd4tcell_cd8tcell_ratio - 
+  (model.matrix(cd4_cd8_ratio_lmer)[,c("batch2","batch3")]
+   %*%summary(cd4_cd8_ratio_lmer)$coef[c("batch2","batch3"),1]) - (data$age*0.062574)
+
+# Generate supplementary figure 3 plots
+colors=c("darkorange1", "dodgerblue4")
+# Figure 4A
+p1=ggplot(data, aes(x=sex,y=cd8tcellssex, color=sex)) + scale_colour_manual(values = colors) +
+  geom_boxplot(outlier.color='white', alpha=0.5) + geom_point(position=position_jitterdodge(), alpha=0.5) +
+  xlab("") + ylab("% CD8+ T Cells") + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), axis.text=element_text(size=14), 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 18), 
+        axis.line = element_line(colour = "black"), legend.position = 'none')
+
+# Figure 4B
+p2=ggplot(data, aes(x=sex,y=cd4tcell_cd8tcell_ratiosex, color=sex)) + scale_colour_manual(values = colors) +
+  geom_boxplot(outlier.color='white', alpha=0.5) + geom_point(position=position_jitterdodge(), alpha=0.5) + 
+  xlab("") + ylab("CD4+/CD8+ T Cell Ratio") + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), axis.text=element_text(size=14), 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 18), 
+        axis.line = element_line(colour = "black"), legend.position = 'none')
+grid.arrange(p1,p2,nrow=1)
+
+# Run Linear Mixed Effects Models for the interaction between age and sex on all cell types (Model 4)
+# CD20+ B cell to CD3+ T cell ratio
+bcell_tcell_ratio_lmer=lmer(bcell_tcell_ratio ~ age2 * sex + batch + (1|sample), data=data)
+summary(bcell_tcell_ratio_lmer)
+
+# CD20+ B cells
+bcells_lmer=lmer(bcells ~ age2 * sex + batch + (1|sample), data=data)
+summary(bcells_lmer)
+
+# CD3+ T cells
+cd3tcells_lmer=lmer(cd3tcells ~ age2 * sex + batch + (1|sample), data=data)
+summary(cd3tcells_lmer)
+
+# CD4+ T cells
+cd4tcells_lmer=lmer(cd4tcells ~ age2 * sex + batch + (1|sample), data=data)
+summary(cd4tcells_lmer)
+
+# CD8+ T cells
+cd8tcells_lmer=lmer(cd8tcells ~ age2 * sex + batch + (1|sample), data=data)
+summary(cd8tcells_lmer)
+
+# CD4+ to CD8+ T cell ratio
+cd4_cd8_ratio_lmer=lmer(cd4tcell_cd8tcell_ratio ~ age2 * sex + batch + (1|sample), data=data)
+summary(cd4_cd8_ratio_lmer)
+
+# CD4+ T regulatory cells
+cd4tregulatory_lmer=lmer(cd4tregulatory ~ age2 * sex + batch + (1|sample), data=data)
+summary(cd4tregulatory_lmer)
+
+# CD8+ T regulatory cells
+cd8tregulatory_lmer=lmer(cd8tregulatory ~ age2 * sex + batch + (1|sample), data=data)
+summary(cd8tregulatory_lmer)
+
+# Natural Killer cells
+nkcells_lmer=lmer(nkcells ~ age2 * sex + batch + (1|sample), data=data)
+summary(nkcells_lmer)
+
+# Classical Monocytes
+class_monocytes_lmer=lmer(class_monocytes ~ age2 * sex + batch + (1|sample), data=data)
+summary(class_monocytes_lmer)
+
+# Non-Classical Monocytes
+non_class_monocytes_lmer=lmer(nonclass_monocytes ~ age2 * sex + batch + (1|sample), data=data)
+summary(non_class_monocytes_lmer)
+
+# Intermediate Monocytes
+inter_monocytes_lmer=lmer(inter_monocytes ~ age2 * sex + batch + (1|sample), data=data)
+summary(inter_monocytes_lmer)
+
+# No significatnt interaction in any cell type
+
