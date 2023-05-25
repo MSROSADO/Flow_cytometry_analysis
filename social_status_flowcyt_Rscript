@@ -1,0 +1,332 @@
+# Flow cytometry social status analysis
+
+library(ggplot2)
+library(tidyverse)
+library(lmerTest)
+library(rstatix)
+library(gridExtra)
+library(readxl)
+
+# Import the text file dataset from selected directory
+setwd("~/the desired directory")
+
+# Work on the subset of data for which we have social rank data available
+
+# Load the dataset
+data_status <- read_excel("status_dataset_FlowCyt.xlsx")
+i <- c(11:20)
+data_status[ , i] <- apply(data_status[ , i], 2,            # Specify own function within apply
+                           function(x) as.numeric(as.character(x)))
+
+# Convert batch effects to a factor variable
+data_status$batch=as.factor(data_status$batch)
+
+# Convert GROUP to a factor variable
+data_status$GROUP=as.factor(data_status$GROUP)
+
+# Convert RANK to factor variable
+data_status$X.DOMINATED2=as.factor(data_status$X.DOMINATED2)
+
+# Sex as a numeric variable (mean centered)
+data_status$sex2=data_status$SEX
+data_status$SEX[data_status$SEX=='M']<- '0.5'
+data_status$SEX[data_status$SEX=='F']<- '-0.5'
+data_status$SEX=as.numeric(data_status$SEX)
+
+# Mean center age
+data_status$age2= data_status$age - mean(data_status$age)
+
+# Calculate B cell to T cell ratio 
+data_status$bcell_tcell_ratio=data_status$bcells/data_status$cd3tcells
+
+# Calculate CD4+ cell to CD8+ T cell ratio
+data_status$cd4tcell_cd8tcell_ratio=data_status$cd4tcells/data_status$cd8tcells
+
+# Perform Principal component analysis
+pca_data<-prcomp(data_status[,c(11:20,26:27)], scale = TRUE)
+summary(pca_data)
+
+# Extract PCs and merge with social status data
+prin=as.data.frame(pca_data$x)
+data_status=cbind(data_status, prin[1:8])
+
+# Perform additive effects model and interaction (status*age & status*sex) with PC projections
+PC1_lmer=lmer(PC1 ~ X.DOMINATED2 + SEX + age + batch + (1|sample) + (1|GROUP), data=data_status)
+summary(PC1_lmer) # NOT SIGNIFICANT - Model 5
+
+PC1_lmer=lmer(PC1 ~ X.DOMINATED2 *age2 + SEX + batch + (1|sample) + (1|GROUP), data=data_status)
+summary(PC1_lmer) # NOT SIGNIFICANT - Model 6
+
+PC1_lmer=lmer(PC1 ~ X.DOMINATED2 * SEX + age + batch + (1|sample) + (1|GROUP), data=data_status)
+summary(PC1_lmer) # SIGNIFICANT INTERACTION - Model 6
+                      
+# Additive effect linear mixed models for social status on all cell types (Model 7)
+
+# B cells
+bcells_social_lmer=lmer(bcells ~ X.DOMINATED2 + sex + age + batch + (1|sample) + (1|GROUP), 
+                        data=data_status)
+summary(bcells_social_lmer)
+
+# CD3 + T Cells
+cd3tcells_social_lmer=lmer(cd3tcells ~ X.DOMINATED2 + sex + age + batch + (1|sample) + (1|GROUP), 
+                           data=data_status)
+summary(cd3tcells_social_lmer)
+
+# B cell/T cell ratio
+btratio_social_lmer=lmer(bcell_tcell_ratio ~ X.DOMINATED2 + sex + age + batch + GROUP + (1|sample), 
+                         data=data_status)
+summary(btratio_social_lmer)
+
+# CD4 + T Cells
+cd4tcells_social_lmer=lmer(cd4tcells ~ X.DOMINATED2 + sex + age + batch + GROUP + (1|sample), 
+                           data=data_status)
+summary(cd4tcells_social_lmer)
+
+# CD8 + T Cells
+cd8tcells_social_lmer=lmer(cd8tcells ~ X.DOMINATED2 + sex + age + batch + GROUP + (1|sample), 
+                           data=data_status)
+summary(cd8tcells_social_lmer)
+
+# CD4 T cell/CD8 T cell ratio
+cd4cd8_social_lmer=lmer(cd4tcell_cd8tcell_ratio ~ X.DOMINATED2 + sex + age + batch + GROUP + (1|sample), 
+                        data=data_status)
+summary(cd4cd8_social_lmer)
+
+# CD4 + T Regs
+cd4tregulatory_social_lmer=lmer(cd4tregulatory ~ X.DOMINATED2 + sex + age + batch + GROUP + (1|sample), 
+                                data=data_status)
+summary(cd4tregulatory_social_lmer)
+
+# CD8 + T Regs
+cd8tregulatory_social_lmer=lmer(cd8tregulatory ~ X.DOMINATED2 + sex + age + batch + GROUP + (1|sample), 
+                                data=data_status)
+summary(cd8tregulatory_social_lmer)
+
+# NK Cells
+nkcells_social_lmer=lmer(nkcells ~ X.DOMINATED2 + sex + age + batch + GROUP + (1|sample), 
+                         data=data_status)
+summary(nkcells_social_lmer)
+
+# Classical Monicytes
+class_monocytes_social_lmer=lmer(class_monocytes ~ X.DOMINATED2 + sex + age + batch + GROUP + (1|sample), 
+                                 data=data_status)
+summary(class_monocytes_social_lmer)
+
+# Non-Classical Monicytes
+nonclass_monocytes_social_lmer=lmer(nonclass_monocytes ~ X.DOMINATED2 + sex + age + batch + GROUP + (1|sample), 
+                                    data=data_status)
+summary(nonclass_monocytes_social_lmer)
+
+# Intermediate Monicytes
+inter_monocytes_social_lmer=lmer(inter_monocytes ~ X.DOMINATED2 + sex + age + batch + GROUP + (1|sample), 
+                                 data=data_status)
+summary(inter_monocytes_social_lmer)
+
+# Run Linear Mixed Effects Models for the interaction between status and age on all cell types (Model 8)
+bcells_social_lmer=lmer(bcells ~ X.DOMINATED2 * age2 + sex + batch (1|sample) + (1|GROUP), 
+                        data=data_status)
+summary(bcells_social_lmer)
+
+# CD3 + T Cells
+cd3tcells_social_lmer=lmer(cd3tcells ~ X.DOMINATED2 * age2 + sex + batch + (1|sample) + (1|GROUP), 
+                           data=data_status)
+summary(cd3tcells_social_lmer)
+
+# CD4 + T Cells
+cd4tcells_social_lmer=lmer(cd4tcells ~ X.DOMINATED2 * age2 + sex + batch + (1|sample) + (1|GROUP), 
+                           data=data_status)
+summary(cd4tcells_social_lmer)
+
+# CD8 + T Cells
+cd8tcells_social_lmer=lmer(cd8tcells ~ X.DOMINATED2 * age2 + sex + batch + (1|sample) + (1|GROUP), 
+                           data=data_status)
+summary(cd8tcells_social_lmer)
+
+# CD4 + T Regs
+cd4tregulatory_social_lmer=lmer(cd4tregulatory ~ X.DOMINATED2 * age2 + sex + batch + (1|sample) + (1|GROUP), 
+                                data=data_status)
+summary(cd4tregulatory_social_lmer)
+
+# CD8 + T Regs
+cd8tregulatory_social_lmer=lmer(cd8tregulatory ~ X.DOMINATED2 * age2 + sex + batch + (1|sample) + (1|GROUP), 
+                                data=data_status)
+summary(cd8tregulatory_social_lmer)
+
+# NK Cells
+nkcells_social_lmer=lmer(nkcells ~ X.DOMINATED2 * age2 + sex + batch + (1|sample) + (1|GROUP), 
+                         data=data_status)
+summary(nkcells_social_lmer)
+
+# Classical Monicytes
+class_monocytes_social_lmer=lmer(class_monocytes ~ X.DOMINATED2 * age2 + sex + batch + (1|sample) + (1|GROUP), 
+                                 data=data_status)
+summary(class_monocytes_social_lmer)
+
+# Classical Monicytes
+nonclass_monocytes_social_lmer=lmer(nonclass_monocytes ~ X.DOMINATED2 * age2 + sex + batch + (1|sample) + (1|GROUP), 
+                                    data=data_status)
+summary(nonclass_monocytes_social_lmer)
+
+# Intermediate Monicytes
+inter_monocytes_social_lmer=lmer(inter_monocytes ~ X.DOMINATED2 * age2 + sex + batch + (1|sample) + (1|GROUP), 
+                                 data=data_status)
+summary(inter_monocytes_social_lmer)
+
+# Run Linear Mixed Effects Models for the interaction between status and sex on all cell types (Model 8)
+# B cells
+bcells_social_lmer=lmer(bcells ~ X.DOMINATED2 * SEX + age + batch + (1|sample) + (1|GROUP), 
+                        data=data_status)
+summary(bcells_social_lmer)
+
+# CD3 + T Cells
+cd3tcells_social_lmer=lmer(cd3tcells ~X.DOMINATED2 * SEX + age + batch + (1|sample) + (1|GROUP), 
+                           data=data_status)
+summary(cd3tcells_social_lmer)
+
+# B cell/T cell ratio
+btratio_social_lmer=lmer(bcell_tcell_ratio ~ X.DOMINATED2 * SEX + age + batch + (1|sample) + (1|GROUP), 
+                        data=data_status)
+summary(btratio_social_lmer)
+
+# CD4 + T Cells
+cd4tcells_social_lmer=lmer(cd4tcells ~ X.DOMINATED2 * SEX + age + batch + (1|sample) + (1|GROUP), 
+                           data=data_status)
+summary(cd4tcells_social_lmer)
+
+# CD8 + T Cells
+cd8tcells_social_lmer=lmer(cd8tcells ~ X.DOMINATED2 * SEX + age + batch + (1|sample) + (1|GROUP), 
+                           data=data_status)
+summary(cd8tcells_social_lmer)
+
+# CD4 T cell/CD8 T cell ratio
+cd4cd8_social_lmer=lmer(cd4tcell_cd8tcell_ratio ~ X.DOMINATED2 * SEX + age + batch + (1|sample) + (1|GROUP), 
+                         data=data_status)
+summary(cd4cd8_social_lmer)
+
+# CD4 + T Regs
+cd4tregulatory_social_lmer=lmer(cd4tregulatory ~ X.DOMINATED2 * SEX + age + batch + (1|sample) + (1|GROUP), 
+                                data=data_status)
+summary(cd4tregulatory_social_lmer)
+
+# CD8 + T Regs
+cd8tregulatory_social_lmer=lmer(cd8tregulatory ~ X.DOMINATED2 * SEX + age + batch + (1|sample) + (1|GROUP), 
+                                data=data_status)
+summary(cd8tregulatory_social_lmer)
+
+# NK Cells
+nkcells_social_lmer=lmer(nkcells ~ X.DOMINATED2 * SEX + age + batch + (1|sample) + (1|GROUP), 
+                         data=data_status)
+summary(nkcells_social_lmer)
+
+# Classical Monicytes
+class_monocytes_social_lmer=lmer(class_monocytes ~ X.DOMINATED2 * SEX + age + batch + (1|sample) + (1|GROUP), 
+                         data=data_status)
+summary(class_monocytes_social_lmer)
+
+# Non-Classical Monicytes
+nonclass_monocytes_social_lmer=lmer(nonclass_monocytes ~ X.DOMINATED2 * SEX + age + batch + (1|sample) + (1|GROUP), 
+                                 data=data_status)
+summary(nonclass_monocytes_social_lmer)
+
+# Intermediate Monicytes
+inter_monocytes_social_lmer=lmer(inter_monocytes ~ X.DOMINATED2 * SEX + age + batch + (1|sample) + (1|GROUP), 
+                                 data=data_status)
+summary(inter_monocytes_social_lmer)
+
+# There is a significant interaction with status and sex in PC1, B cell// cell ratio (CD20+/CD3+),
+# CD3+ T cells, CD8+ T cells and NK cells
+
+
+# Multiple hypothesis testing on all cell types to test if the interaction between status and sex
+# is significant (.1<)
+correction=as.data.frame(c(summary(cd3tcells_social_lmer)$coefficients[,5][8], summary(cd4tcells_social_lmer)$coefficients[,5][8], 
+                           summary(cd8tcells_social_lmer)$coefficients[,5][8], summary(cd4tregulatory_social_lmer)$coefficients[,5][8], 
+                           summary(cd8tregulatory_social_lmer)$coefficients[,5][8], summary(nkcells_social_lmer)$coefficients[,5][8],
+                           summary(class_monocytes_social_lmer)$coefficients[,5][8], summary(nonclass_monocytes_social_lmer)$coefficients[,5][8],
+                           summary(inter_monocytes_social_lmer)$coefficients[,5][8], summary(bcells_social_lmer)$coefficients[,5][8],
+                           summary(cd4cd8_social_lmer)$coefficients[,5][8], summary(btratio_social_lmer)$coefficients[,5][8], summary(PC1_lmer)$coefficients[,5][8]))
+
+# Generate data frame with the adjusted p values for every cell type
+adjusted_p_values_status=as.data.frame(p.adjust(correction$`c(summary(cd3tcells_social_lmer)$coefficients[, 5][8], summary(cd4tcells_social_lmer)$coefficients[, 5][8], summary(cd8tcells_social_lmer)$coefficients[, 5][8], summary(cd4tregulatory_social_lmer)$coefficients[, 5][8], summary(cd8tregulatory_social_lmer)$coefficients[, 5][8], summary(nkcells_social_lmer)$coefficients[, 5][8], summary(class_monocytes_social_lmer)$coefficients[, 5][8], summary(nonclass_monocytes_social_lmer)$coefficients[, 5][8], summary(inter_monocytes_social_lmer)$coefficients[,      5][8], summary(bcells_social_lmer)$coefficients[, 5][8], summary(cd4cd8_social_lmer)$coefficients[, 5][8], summary(btratio_social_lmer)$coefficients[, 5][8], summary(PC1_lmer)$coefficients[, 5][8])`, method = 'fdr'))
+colnames(adjusted_p_values_status)='fdr'
+adjusted_p_values_status$cell_type=c('cd3tcells', 'cd4tcells', 'cd8tcells', 'cd4tregs', 'cd8tregs', 'nkcells', 'classmono',
+                                  'nonclassmono', 'intermono', 'bcells', 'cd4cd8ratio', 'btratio', 'PC1')
+
+
+# Generate plots
+
+# First, we will substract the effect of batch on significant cell types and we will
+# work with h resdiduals
+
+# CD8+ T cells
+summary(cd8tcells_social_lmer)$coefficients
+data_status$cd8tcells = data_status$cd8tcells - (model.matrix(cd8tcells_social_lmer)[,c("batch2","batch3","batch4")]
+                                                 %*%summary(cd8tcells_social_lmer)$coef[c("batch2","batch3","batch4"),1]) 
+
+# NK cells
+summary(nkcells_social_lmer)$coefficients
+data_status$nkcells = data_status$nkcells - (model.matrix(nkcells_social_lmer)[,c("batch2","batch3","batch4")]
+                                             %*%summary(nkcells_social_lmer)$coef[c("batch2","batch3","batch4"),1]) 
+
+# B cell to T cell ratio
+summary(btratio_social_lmer)$coefficients
+data_status$bcell_tcell_ratio = data_status$bcell_tcell_ratio - (model.matrix(btratio_social_lmer)[,c("batch2","batch3","batch4")]
+                                                 %*%summary(btratio_social_lmer)$coef[c("batch2","batch3","batch4"),1])
+
+# CD3+ T cells
+summary(cd3tcells_social_lmer)$coefficients
+data_status$cd3tcells = data_status$cd3tcells - (model.matrix(cd3tcells_social_lmer)[,c("batch2","batch3","batch4")]
+                                                 %*%summary(cd3tcells_social_lmer)$coef[c("batch2","batch3","batch4"),1]) 
+
+# Generate figure 5
+colors=c('darkorange1', 'darkgreen')
+#PCA interaction
+p1=ggplot(data_status, aes(X.DOMINATED2,PC1, color=X.DOMINATED2)) + geom_boxplot(outlier.color='white') + scale_colour_manual(values = colors) +
+  geom_point(position=position_jitterdodge(), alpha=0.6) + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), axis.text=element_text(size=14), 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 18), 
+        axis.line = element_line(colour = "black"), legend.position = 'none')  + ylab("PC1 (31%)") + xlab("") + facet_wrap(~sex)
+
+# Cell type interaction
+colors=c('darkorange1', 'darkgreen', 'darkorange1', 'darkgreen')
+data_status$SEX[data_status$SEX=='0.5']<- 'MALE'
+data_status$SEX[data_status$SEX=='-0.5']<- 'FEMALE'
+data_status$SEX=as.factor(data_status$SEX)
+
+# B cell to T cel ratio
+p2=ggplot(data_status, aes(x=X.DOMINATED2, y=bcell_tcell_ratio, color=X.DOMINATED2)) + scale_colour_manual(values = colors) +
+  geom_boxplot(outlier.color='white') + geom_point(position=position_jitterdodge(), alpha=0.6) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.text=element_text(size=14), legend.position = 'none', 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 15),
+        axis.line = element_line(colour = "black")) + xlab("") + facet_wrap(~SEX) + ylab('CD20+ B Cell/CD3+T Cell Ratio')
+
+# CD8+ T cells
+p3=ggplot(data_status, aes(x=X.DOMINATED2, y=cd8tcells, color=X.DOMINATED2)) + scale_colour_manual(values = colors) +
+  geom_boxplot(outlier.color='white') + geom_point(position=position_jitterdodge(), alpha=0.6) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.text=element_text(size=14), legend.position = 'none', 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 18),
+        axis.line = element_line(colour = "black")) + xlab("") + facet_wrap(~SEX) + ylab('% of CD8+ T Cells')
+
+# NK Cells
+p4=ggplot(data_status, aes(x=X.DOMINATED2, y=nkcells, color=X.DOMINATED2)) + scale_colour_manual(values = colors) +
+  geom_boxplot(outlier.color='white') + geom_point(position=position_jitterdodge(), alpha=0.6) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.text=element_text(size=14), legend.position = 'none', 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 18),
+        axis.line = element_line(colour = "black")) + xlab("") + facet_wrap(~SEX) + ylab('% of NK Cells')
+
+# Create plot for social status (Figure 5 A, B, C and D)
+grid.arrange(p1,p2,p3,p4, nrow=2) # dimensions of the figure are 10 x 7
+
+# Supplementary material plot
+# CD3+ T Cells
+ggplot(data_status, aes(x=X.DOMINATED2, y=cd3tcells, color=X.DOMINATED2)) + scale_colour_manual(values = colors) +
+  geom_boxplot(outlier.color='white') + geom_point(position=position_jitterdodge(), alpha=0.6) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.text=element_text(size=14), legend.position = 'none', 
+        axis.title.x = element_text(size = 18),  axis.title.y = element_text(size = 18),
+        axis.line = element_line(colour = "black")) + xlab("") + facet_wrap(~SEX) + ylab('% of CD3+ T Cells')
+
